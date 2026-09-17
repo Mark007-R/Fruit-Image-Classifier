@@ -16,12 +16,67 @@ import logging
 warnings.filterwarnings('ignore')
 logging.basicConfig(level=logging.INFO, format='[%(levelname)s] %(message)s')
 
+class PaperButton(tk.Button):
+    """Flat tk.Button in the mark.dev paper style (presentation only).
+
+    Primary buttons are filled with the accent; the rest are outlined with the paper
+    border. Colours are repainted on hover and whenever the state option changes, so a
+    disabled primary button reads as disabled instead of as a live accent bar.
+    """
+
+    def __init__(self, master, palette, primary=False, **kw):
+        self._palette = palette
+        self._primary = primary
+        self._hovering = False
+        super().__init__(master, **kw)
+        self.bind('<Enter>', self._on_enter, add='+')
+        self.bind('<Leave>', self._on_leave, add='+')
+        self._paint()
+
+    def configure(self, cnf=None, **kw):
+        result = super().configure(cnf, **kw)
+        if 'state' in kw or (isinstance(cnf, dict) and 'state' in cnf):
+            self._paint()
+        return result
+
+    config = configure
+
+    def _on_enter(self, _event):
+        self._hovering = True
+        self._paint()
+
+    def _on_leave(self, _event):
+        self._hovering = False
+        self._paint()
+
+    def _paint(self):
+        p = self._palette
+        disabled = str(self.cget('state')) == 'disabled'
+        if self._primary and disabled:
+            bg, fg, edge = p['disabled_bg'], p['disabled_fg'], p['disabled_bg']
+        elif self._primary:
+            bg = p['accent_strong'] if self._hovering else p['accent']
+            fg, edge = p['on_accent'], bg
+        elif disabled:
+            bg, fg, edge = p['card'], p['disabled_ink'], p['line']
+        elif self._hovering:
+            bg, fg, edge = p['accent_tint'], p['accent'], p['accent']
+        else:
+            # outline buttons sit on the alt paper with the strong line, so they read as buttons on a card
+            bg, fg, edge = p['paper_alt'], p['ink_2'], p['line_strong']
+        tk.Button.configure(
+            self, bg=bg, fg=fg, disabledforeground=fg,
+            activebackground=p['accent_strong'] if self._primary else p['accent_tint'],
+            activeforeground=p['on_accent'] if self._primary else p['accent'],
+            highlightbackground=edge, highlightcolor=edge)
+
+
 class ModernFruitClassifier:
     def __init__(self, root):
         self.root = root
         self.root.title("AI Fruit Classifier")
         self.root.geometry("1600x900")
-        self.root.configure(bg='#0f0f1e')
+        self.root.configure(bg='#fefaf5')
 
         self.svm_model = None
         self.dt_model = None
@@ -30,15 +85,28 @@ class ModernFruitClassifier:
         self.class_names = []
         self.X_train = self.X_test = self.y_train = self.y_test = None
         self.current_image_path = None
-        self.bg_primary = '#0f0f1e'
-        self.bg_secondary = '#1a1a2e'
-        self.bg_card = '#16213e'
-        self.accent_purple = '#8b5cf6'
-        self.accent_blue = '#3b82f6'
-        self.accent_green = '#10b981'
-        self.accent_orange = '#f59e0b'
-        self.text_primary = '#f8fafc'
-        self.text_secondary = '#94a3b8'
+        # mark.dev paper palette, Leaf accent. The attribute names are kept from the old
+        # dark theme because the methods below refer to them.
+        self.bg_primary = '#fefaf5'      # paper ground
+        self.bg_secondary = '#faf2e9'    # inset band: stats, image well, readout
+        self.bg_card = '#fffdfa'         # cards
+        self.accent_purple = '#3B8231'   # Leaf accent: the primary actions (Train, Classify)
+        self.accent_blue = '#57504a'     # secondary ink (outline buttons)
+        self.accent_green = '#3f7a3a'    # status ok: success text and accuracies
+        self.accent_orange = '#a86a12'   # status warn (its button is drawn as an outline)
+        self.text_primary = '#1c1714'    # ink
+        self.text_secondary = '#756c65'  # muted ink
+        self.accent_strong = '#2F6827'
+        self.accent_soft = '#62A15A'
+        self.line = '#e9dbcd'
+        self.line_strong = '#d8c3b2'
+        self.palette = {
+            'accent': self.accent_purple, 'accent_strong': self.accent_strong,
+            'accent_tint': '#f3f6ee', 'on_accent': '#fefaf5',
+            'card': self.bg_card, 'paper_alt': self.bg_secondary, 'ink_2': '#57504a',
+            'line': self.line, 'line_strong': self.line_strong,
+            'disabled_bg': '#e7eee2', 'disabled_fg': '#93b98b', 'disabled_ink': '#b4a79c',
+        }
         self.setup_styles()
         self.create_modern_ui()
 
@@ -47,15 +115,15 @@ class ModernFruitClassifier:
         style.theme_use('clam')
         style.configure("Modern.Horizontal.TProgressbar",
                        background=self.accent_purple,
-                       troughcolor=self.bg_secondary,
+                       troughcolor=self.line,
                        borderwidth=0,
                        thickness=4)
 
     def create_modern_ui(self):
         header = tk.Frame(self.root, bg=self.bg_primary)
         header.pack(fill='x', padx=25, pady=(15, 10))
-        tk.Label(header, text="AI Fruit Classifier", font=('Arial', 24, 'bold'), bg=self.bg_primary, fg=self.text_primary).pack(side='left')
-        tk.Label(header, text="Multi-Model ML Classification", font=('Arial', 10), bg=self.bg_primary, fg=self.text_secondary).pack(side='left', padx=(15, 0))
+        tk.Label(header, text="AI Fruit Classifier", font=('Georgia', 24, 'bold'), bg=self.bg_primary, fg=self.text_primary).pack(side='left')
+        tk.Label(header, text="Multi-Model ML Classification", font=('Consolas', 10), bg=self.bg_primary, fg=self.accent_purple).pack(side='left', padx=(16, 0))
         main_frame = tk.Frame(self.root, bg=self.bg_primary)
         main_frame.pack(fill='both', expand=True, padx=25, pady=(0, 15))
         main_frame.grid_columnconfigure(0, weight=1)
@@ -73,27 +141,28 @@ class ModernFruitClassifier:
         self.create_results_section(right_col)
 
     def create_compact_card(self, parent, title, icon=""):
-        card = tk.Frame(parent, bg=self.bg_card, highlightbackground='#2d3748', highlightthickness=1)
-        card.pack(fill='both', expand=True, pady=(0, 10))
+        card = tk.Frame(parent, bg=self.bg_card, highlightbackground=self.line, highlightcolor=self.line, highlightthickness=1)
+        card.pack(fill='both', expand=True, pady=(0, 12))
         header = tk.Frame(card, bg=self.bg_card)
-        header.pack(fill='x', padx=15, pady=(10, 8))
-        tk.Label(header, text=title, font=('Arial', 12, 'bold'), bg=self.bg_card, fg=self.text_primary).pack(anchor='w')
+        header.pack(fill='x', padx=16, pady=(12, 8))
+        tk.Label(header, text=title, font=('Georgia', 13, 'bold'), bg=self.bg_card, fg=self.text_primary).pack(anchor='w')
         content_frame = tk.Frame(card, bg=self.bg_card)
-        content_frame.pack(fill='both', expand=True, padx=15, pady=(0, 10))
+        content_frame.pack(fill='both', expand=True, padx=16, pady=(0, 14))
         return content_frame
 
     def create_button(self, parent, text, command, bg_color):
-        btn = tk.Button(parent, text=text, command=command,
-                       font=('Arial', 9, 'bold'), bg=bg_color, fg='white',
-                       relief='flat', padx=15, pady=8, cursor='hand2',
-                       activebackground=bg_color, activeforeground='white',
-                       borderwidth=0)
+        # Filled accent for the primary actions, paper outline for everything else.
+        btn = PaperButton(parent, self.palette, primary=(bg_color == self.accent_purple),
+                          text=text, command=command,
+                          font=('Segoe UI', 9, 'bold'),
+                          relief='flat', padx=15, pady=8, cursor='hand2',
+                          borderwidth=0, highlightthickness=1)
         return btn
 
     def create_training_section(self, parent):
         card1 = self.create_compact_card(parent, "Dataset")
         self.create_button(card1, "Browse Folder", self.select_dataset, self.accent_blue).pack(fill='x', pady=(0, 8))
-        self.dataset_label = tk.Label(card1, text="No dataset", font=('Arial', 9), bg=self.bg_card, fg=self.text_secondary, wraplength=280)
+        self.dataset_label = tk.Label(card1, text="No dataset", font=('Segoe UI', 9), bg=self.bg_card, fg=self.text_secondary, wraplength=280)
         self.dataset_label.pack(fill='x')
         card2 = self.create_compact_card(parent, "Training")
         self.btn_train = self.create_button(card2, "Train Models", self.train_models, self.accent_purple)
@@ -101,14 +170,14 @@ class ModernFruitClassifier:
         self.btn_train.config(state='disabled')
         self.progress = ttk.Progressbar(card2, mode='indeterminate', style="Modern.Horizontal.TProgressbar")
         self.progress.pack(fill='x', pady=(0, 8))
-        stats = tk.Frame(card2, bg=self.bg_secondary)
+        stats = tk.Frame(card2, bg=self.bg_secondary, highlightbackground=self.line, highlightcolor=self.line, highlightthickness=1, pady=4)
         stats.pack(fill='x')
         self.stats_labels = []
-        for model, color in [("SVM", self.accent_purple), ("D-Tree", self.accent_blue), ("KNN", self.accent_green)]:
+        for model, color in [("SVM", self.text_secondary), ("D-Tree", self.text_secondary), ("KNN", self.text_secondary)]:
             row = tk.Frame(stats, bg=self.bg_secondary)
             row.pack(fill='x', pady=2, padx=8)
-            tk.Label(row, text=model, font=('Arial', 8, 'bold'), bg=self.bg_secondary, fg=color, width=8).pack(side='left')
-            label = tk.Label(row, text="—", font=('Arial', 8), bg=self.bg_secondary, fg=self.text_secondary)
+            tk.Label(row, text=model, font=('Consolas', 9, 'bold'), bg=self.bg_secondary, fg=color, width=8, anchor='w').pack(side='left')
+            label = tk.Label(row, text="—", font=('Consolas', 9), bg=self.bg_secondary, fg=self.text_secondary)
             label.pack(side='right')
             self.stats_labels.append(label)
         card3 = self.create_compact_card(parent, "Models")
@@ -119,9 +188,9 @@ class ModernFruitClassifier:
 
     def create_upload_section(self, parent):
         card = self.create_compact_card(parent, "Image Upload")
-        self.image_container = tk.Frame(card, bg=self.bg_secondary)
+        self.image_container = tk.Frame(card, bg=self.bg_secondary, highlightbackground=self.line, highlightcolor=self.line, highlightthickness=1)
         self.image_container.pack(fill='both', expand=True, pady=(0, 10))
-        self.image_label = tk.Label(self.image_container, text="No Image\n\nUpload to classify", font=('Arial', 11), bg=self.bg_secondary, fg=self.text_secondary)
+        self.image_label = tk.Label(self.image_container, text="No Image\n\nUpload to classify", font=('Segoe UI', 11), bg=self.bg_secondary, fg=self.text_secondary)
         self.image_label.pack(expand=True)
         btn_frame = tk.Frame(card, bg=self.bg_card)
         btn_frame.pack(fill='x')
@@ -132,7 +201,9 @@ class ModernFruitClassifier:
 
     def create_results_section(self, parent):
         card = self.create_compact_card(parent, "Results")
-        self.results_text = tk.Text(card, font=('Consolas', 10), bg=self.bg_secondary, fg=self.text_primary, padx=12, pady=12, wrap='word', relief='flat', borderwidth=0, insertbackground=self.text_primary)
+        self.results_text = tk.Text(card, font=('Consolas', 10), bg=self.bg_secondary, fg=self.text_primary, padx=14, pady=12, wrap='word', relief='flat', borderwidth=0, insertbackground=self.text_primary,
+                                    highlightthickness=1, highlightbackground=self.line, highlightcolor=self.line,
+                                    selectbackground='#dfe9da', selectforeground=self.text_primary, inactiveselectbackground='#dfe9da')
         self.results_text.pack(fill='both', expand=True)
         self.results_text.insert('1.0', "Awaiting classification...\n\n1. Select dataset\n2. Train models\n3. Upload image\n4. Click classify")
         self.results_text.config(state='disabled')
